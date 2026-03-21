@@ -1,16 +1,25 @@
 """
 Booking.com Hotel Scraper - Contoh untuk pembelajaran
-Mengambil rating dan jumlah ulasan dari halaman hotel
+Teknik: curl_cffi (anti-bot) + JSON-LD (stabil) + CSS fallback
 """
 
 import json
 import random
+import re
 import time
 from datetime import datetime
 from pathlib import Path
 
-import requests
 from bs4 import BeautifulSoup
+
+try:
+    from curl_cffi import requests
+    CURL_AVAILABLE = True
+    print("✅ Menggunakan curl_cffi (mode anti-bot)")
+except ImportError:
+    import requests
+    CURL_AVAILABLE = False
+    print("⚠️  curl_cffi tidak tersedia, pakai requests biasa")
 
 # ─────────────────────────────────────────
 # KONFIGURASI
@@ -19,123 +28,136 @@ from bs4 import BeautifulSoup
 HOTEL_URL = "https://www.booking.com/hotel/id/arena-villa.id.html"
 OUTPUT_FILE = "data/hotel_data.json"
 
-# Daftar proxy gratis (format: "ip:port")
-# Ganti dengan proxy berbayar untuk hasil lebih stabil
 PROXIES = [
-    # Contoh format — isi dengan proxy kamu:
-    # "123.45.67.89:8080",
-    # "98.76.54.32:3128",
+    # "123.45.67.89:8080",   ← isi dengan proxy kamu
 ]
 
-# User-Agent palsu agar tidak terdeteksi sebagai bot
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 ]
+
+BROWSER_IMPERSONATIONS = ["chrome110", "chrome116", "chrome120", "chrome124"]
 
 
 # ─────────────────────────────────────────
-# FUNGSI ROTATING PROXY
+# ROTATING PROXY & HEADERS
 # ─────────────────────────────────────────
 
 def get_random_proxy():
-    """Pilih proxy secara acak dari daftar."""
     if not PROXIES:
-        return None  # Tanpa proxy jika daftar kosong
+        return None
     proxy = random.choice(PROXIES)
     return {"http": f"http://{proxy}", "https": f"http://{proxy}"}
 
 
 def get_random_headers():
-    """Buat header HTTP palsu dengan User-Agent acak."""
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Referer": "https://www.booking.com/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.google.com/",
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "upgrade-insecure-requests": "1",
     }
 
 
 # ─────────────────────────────────────────
-# FUNGSI SCRAPING
+# FETCH HALAMAN
 # ─────────────────────────────────────────
 
 def fetch_page(url, retries=3):
-    """
-    Ambil halaman web dengan retry otomatis.
-    Setiap retry menggunakan proxy dan User-Agent berbeda.
-    """
     for attempt in range(1, retries + 1):
         print(f"[Attempt {attempt}/{retries}] Mengambil halaman...")
-
         proxy = get_random_proxy()
         headers = get_random_headers()
 
         try:
-            response = requests.get(
-                url,
-                headers=headers,
-                proxies=proxy,
-                timeout=15,
-            )
-            response.raise_for_status()
-            print(f"✅ Berhasil! Status: {response.status_code}")
-            return response.text
+            if CURL_AVAILABLE:
+                impersonate = random.choice(BROWSER_IMPERSONATIONS)
+                response = requests.get(
+                    url, headers=headers, proxies=proxy,
+                    impersonate=impersonate, timeout=20,
+                )
+            else:
+                response = requests.get(url, headers=headers, proxies=proxy, timeout=20)
 
-        except requests.RequestException as e:
+            response.raise_for_status()
+            html = response.text
+
+            if "captcha" in html.lower() or len(html) < 5000:
+                raise ValueError("Halaman tidak valid (mungkin CAPTCHA)")
+
+            print(f"✅ Berhasil! Ukuran HTML: {len(html):,} karakter")
+            return html
+
+        except Exception as e:
             print(f"❌ Gagal: {e}")
             if attempt < retries:
-                wait = random.uniform(3, 7)
-                print(f"⏳ Menunggu {wait:.1f} detik sebelum retry...")
+                wait = random.uniform(5, 12)
+                print(f"⏳ Tunggu {wait:.1f}s sebelum retry...")
                 time.sleep(wait)
 
-    raise RuntimeError("Semua percobaan gagal. Coba lagi nanti.")
+    raise RuntimeError("Semua percobaan gagal.")
+
+
+# ─────────────────────────────────────────
+# PARSE DATA — 2 LAPIS FALLBACK
+# ─────────────────────────────────────────
+
+def parse_via_json_ld(soup):
+    """
+    LAPISAN 1 — Paling stabil.
+    Booking.com menyimpan data di JSON-LD (schema.org) di dalam <script>.
+    Format ini jarang berubah walau tampilan web ganti total.
+    """
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string)
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                agg = item.get("aggregateRating", {})
+                if agg:
+                    rating = str(agg.get("ratingValue", ""))
+                    count  = str(agg.get("reviewCount") or agg.get("ratingCount", ""))
+                    if rating:
+                        print("  → Sumber: JSON-LD ✅")
+                        return rating, f"{count} ulasan" if count else "N/A"
+        except Exception:
+            continue
+    return None, None
+
+
+def parse_via_regex(soup):
+    """
+    LAPISAN 2 — Fallback regex di seluruh teks halaman.
+    Cari pola angka rating (7.0–10.0) dan kata 'ulasan/review'.
+    """
+    text = soup.get_text()
+
+    rating = None
+    match = re.search(r'\b([7-9]\.\d|10\.0)\b', text)
+    if match:
+        rating = match.group(1)
+
+    review_count = None
+    m = re.search(r'(\d[\d.,]+)\s*(ulasan|review|penilaian)', text, re.I)
+    if m:
+        review_count = f"{m.group(1)} {m.group(2)}"
+
+    if rating:
+        print("  → Sumber: regex fallback ✅")
+    return rating, review_count
 
 
 def parse_hotel_data(html):
-    """
-    Parse HTML dan ekstrak rating + jumlah ulasan.
-    Booking.com sering mengubah struktur HTML-nya,
-    jadi kita pakai beberapa selector sebagai fallback.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    rating = None
-    review_count = None
-
-    # ── Cari Rating ──────────────────────────────────
-    # Selector 1: atribut aria-label yang mengandung skor
-    score_elem = soup.find("div", {"data-testid": "review-score-right-component"})
-    if score_elem:
-        score_text = score_elem.find("div", class_=lambda c: c and "ac4a7896c7" in c)
-        if score_text:
-            rating = score_text.get_text(strip=True)
-
-    # Selector 2: fallback lewat aria-label
+    soup = BeautifulSoup(html, "lxml")
+    rating, review_count = parse_via_json_ld(soup)
     if not rating:
-        elem = soup.find(attrs={"aria-label": lambda v: v and "Skor" in v})
-        if elem:
-            rating = elem.get_text(strip=True)
-
-    # ── Cari Jumlah Ulasan ───────────────────────────
-    # Selector 1: data-testid
-    review_elem = soup.find("div", {"data-testid": "review-score-right-component"})
-    if review_elem:
-        spans = review_elem.find_all("div")
-        for span in spans:
-            text = span.get_text(strip=True)
-            if "ulasan" in text.lower() or "review" in text.lower():
-                review_count = text
-                break
-
-    # Selector 2: fallback lewat teks
-    if not review_count:
-        for tag in soup.find_all(string=lambda t: t and "ulasan" in t.lower()):
-            review_count = tag.strip()
-            break
-
+        rating, review_count = parse_via_regex(soup)
     return {
         "rating": rating or "Tidak ditemukan",
         "review_count": review_count or "Tidak ditemukan",
@@ -143,11 +165,10 @@ def parse_hotel_data(html):
 
 
 # ─────────────────────────────────────────
-# FUNGSI SIMPAN DATA
+# SIMPAN DATA
 # ─────────────────────────────────────────
 
 def load_existing_data(filepath):
-    """Muat data lama dari file JSON jika ada."""
     path = Path(filepath)
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
@@ -156,7 +177,6 @@ def load_existing_data(filepath):
 
 
 def save_data(filepath, data):
-    """Simpan data ke file JSON."""
     path = Path(filepath)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -173,28 +193,22 @@ def main():
     print("🏨 Booking.com Hotel Scraper")
     print("=" * 50)
 
-    # 1. Ambil halaman
     html = fetch_page(HOTEL_URL)
-
-    # 2. Parse data
     scraped = parse_hotel_data(html)
+
     print(f"\n📊 Hasil scraping:")
     print(f"   Rating       : {scraped['rating']}")
     print(f"   Jumlah Ulasan: {scraped['review_count']}")
 
-    # 3. Tambahkan timestamp
     entry = {
         "scraped_at": datetime.utcnow().isoformat() + "Z",
         "rating": scraped["rating"],
         "review_count": scraped["review_count"],
     }
 
-    # 4. Muat data lama lalu append
     all_data = load_existing_data(OUTPUT_FILE)
     all_data["history"].append(entry)
     all_data["last_updated"] = entry["scraped_at"]
-
-    # 5. Simpan
     save_data(OUTPUT_FILE, all_data)
     print("\n✅ Selesai!")
 
