@@ -1,0 +1,48 @@
+# .github/workflows/scrape.yml
+# ─────────────────────────────────────────────────────────────
+# Workflow ini berjalan OTOMATIS setiap Senin pukul 08:00 WIB
+# (00:00 UTC). Bisa juga dijalankan manual lewat tab "Actions".
+# ─────────────────────────────────────────────────────────────
+
+name: 🏨 Scrape Hotel Rating
+
+on:
+  # Jadwal otomatis: setiap Senin pukul 00:00 UTC (07:00 WIB)
+  schedule:
+    - cron: "0 0 * * 1"
+
+  # Bisa dijalankan manual dari GitHub → Actions → Run workflow
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    name: Run Scraper
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout kode dari repo
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Siapkan Python
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install dependensi
+      - name: 📦 Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Jalankan scraper
+      - name: 🕷️ Run scraper
+        run: python scraper.py
+
+      # 5. Commit & push file JSON yang diperbarui ke repo
+      - name: 💾 Commit updated data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/hotel_data.json
+          git diff --cached --quiet || git commit -m "🔄 Auto-update hotel data [$(date -u '+%Y-%m-%d')]"
+          git push
