@@ -10,7 +10,7 @@ ACTOR_ID    = "voyager~booking-scraper"
 def run_apify(url):
     if not APIFY_TOKEN:
         raise ValueError("APIFY_TOKEN tidak ditemukan di GitHub Secrets!")
-    print("🚀 Mengirim job ke Apify...")
+    print("Mengirim job ke Apify...")
     r = requests.post(
         f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items",
         json={"startUrls": [{"url": url}], "maxItems": 1},
@@ -26,18 +26,16 @@ def run_apify(url):
     return items[0]
 
 def main():
-    print("=" * 45)
-    print("🏨 Booking.com Scraper via Apify")
-    print("=" * 45)
+    print("Booking.com Scraper via Apify")
     item = run_apify(HOTEL_URL)
-    print("\n📦 Raw data:", json.dumps(item, ensure_ascii=False, indent=2)[:800])
+    print("Raw data:", json.dumps(item, ensure_ascii=False, indent=2)[:800])
 
-    rating       = str(item.get("rating") or item.get("reviewScore") or "Tidak ditemukan")
+    rating = str(item.get("rating") or item.get("reviewScore") or "Tidak ditemukan")
     review_count = item.get("reviews") or item.get("numberOfReviews") or "Tidak ditemukan"
-    review_str   = f"{review_count} ulasan" if review_count != "Tidak ditemukan" else review_count
+    review_str = f"{review_count} ulasan" if review_count != "Tidak ditemukan" else review_count
 
-    print(f"\n📊 Rating       : {rating}")
-    print(f"   Jumlah Ulasan: {review_str}")
+    print(f"Rating: {rating}")
+    print(f"Ulasan: {review_str}")
 
     path = Path(OUTPUT_FILE)
     data = json.loads(path.read_text()) if path.exists() else {"hotel_url": HOTEL_URL, "history": []}
@@ -45,15 +43,7 @@ def main():
     data["last_updated"] = data["history"][-1]["scraped_at"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-    print(f"\n💾 Disimpan ke {OUTPUT_FILE}")
-    print("✅ Selesai!")
+    print("Selesai!")
 
 if __name__ == "__main__":
     main()
-```
-
-**3.** Klik **Commit changes**
-
-**4.** Lakukan hal yang sama untuk `requirements.txt` — isinya cukup:
-```
-requests==2.31.0
