@@ -1,47 +1,35 @@
-name: 🏨 Scrape Hotel Rating
+name: Scrape Hotel Rating
 
 on:
   schedule:
-    - cron: "0 0 * * 1"   # Setiap Senin 07:00 WIB
+    - cron: "0 0 * * 1"
   workflow_dispatch:
 
 jobs:
   scrape:
-    name: Run Scraper
     runs-on: ubuntu-latest
-
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4.2.2
 
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.11"
 
-      - name: 🌐 Install Google Chrome
-        run: |
-          wget -q -O chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt-get install -y ./chrome.deb
-          google-chrome --version
+      - name: Install dependencies
+        run: pip install requests
 
-      - name: 🔧 Install ChromeDriver (otomatis cocok dengan Chrome)
-        run: |
-          pip install webdriver-manager
-
-      - name: 📦 Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: 🕷️ Run scraper
+      - name: Run scraper
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: python scraper.py
 
-      - name: 💾 Commit updated data
+      - name: Commit updated data
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/hotel_data.json
-          git diff --cached --quiet || git commit -m "🔄 Auto-update hotel data [$(date -u '+%Y-%m-%d')]"
+          git diff --cached --quiet || git commit -m "Auto-update hotel data [$(date -u '+%Y-%m-%d')]"
           git push
