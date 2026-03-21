@@ -19,14 +19,17 @@ jobs:
     name: Run Scraper
     runs-on: ubuntu-latest
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # ✅ Pakai Node.js 24
+
     steps:
       # 1. Checkout kode dari repo
       - name: 📥 Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2        # ✅ Support Node.js 24
 
       # 2. Siapkan Python
       - name: 🐍 Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.6.0   # ✅ Support Node.js 24
         with:
           python-version: "3.11"
 
