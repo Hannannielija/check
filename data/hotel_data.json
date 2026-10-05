@@ -1,6 +1,6 @@
 {
   "hotel_url": "https://www.booking.com/hotel/id/arena-villa.id.html",
-  "last_updated": "2026-09-28T03:16:14.259339Z",
+  "last_updated": "2026-10-05T03:43:26.300502Z",
   "history": [
     {
       "scraped_at": "2026-03-17T00:00:00Z",
@@ -181,6 +181,11 @@
       "scraped_at": "2026-09-28T03:16:14.259339Z",
       "rating": "9.1",
       "review_count": "111 ulasan"
+    },
+    {
+      "scraped_at": "2026-10-05T03:43:26.300502Z",
+      "rating": "9",
+      "review_count": "117 ulasan"
     }
   ]
 }
